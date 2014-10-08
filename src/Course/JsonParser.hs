@@ -80,7 +80,7 @@ toSpecialCharacter c =
               ('\\', Backslash) :.
               Nil
   in snd <$> find ((==) c . fst) table
-  
+
 -- | Parse a JSON string. Handle double-quotes, special characters, hexadecimal characters. See http://json.org for the full list of control characters in JSON.
 --
 -- /Tip:/ Use `hex`, `fromSpecialCharacter`, `between`, `is`, `charTok`, `toSpecialCharacter`.
@@ -110,8 +110,12 @@ toSpecialCharacter c =
 -- True
 jsonString ::
   Parser Chars
-jsonString =
-  error "todo"
+jsonString = between quote (tok quote) (list $ satisfyAll $ (/= '\''):.(/='\"'):.Nil) --TODO support special characters
+
+maybeP ::
+  Parser a
+  -> Parser (Optional a)
+maybeP p = (Full) <$> p ||| valueParser Empty
 
 -- | Parse a JSON rational.
 --
@@ -140,7 +144,13 @@ jsonString =
 jsonNumber ::
   Parser Rational
 jsonNumber =
-  error "todo"
+  let
+    isNeg = maybeP $ is '-'
+    digBeforeDot = (maybeP $ is '0') >>> (satisfyAll $ (/= '0') :. isDigit:. Nil) >>> list digit
+    digAfterDot = maybeP $ is '.' >>> list digit
+    epart = maybeP $ (is 'e' ||| is 'E') >>> (maybeP (is '-' ||| is '+')) >>> list digit
+  in P $ \i -> case parse (isNeg >>> digBeforeDot >>> digAfterDot >>> epart) i of (ErrorResult r) ->  ErrorResult r; Result i' _ -> Result i' $ fst $ (readFloats i) ?? undefined
+
 
 -- | Parse a JSON true literal.
 --
@@ -153,8 +163,7 @@ jsonNumber =
 -- True
 jsonTrue ::
   Parser Chars
-jsonTrue =
-  error "todo"
+jsonTrue = stringTok "true"
 
 -- | Parse a JSON false literal.
 --
@@ -167,8 +176,7 @@ jsonTrue =
 -- True
 jsonFalse ::
   Parser Chars
-jsonFalse =
-  error "todo"
+jsonFalse = stringTok "false"
 
 -- | Parse a JSON null literal.
 --
@@ -181,8 +189,7 @@ jsonFalse =
 -- True
 jsonNull ::
   Parser Chars
-jsonNull =
-  error "todo"
+jsonNull = stringTok "null"
 
 -- | Parse a JSON array.
 --
@@ -204,8 +211,7 @@ jsonNull =
 -- Result >< [JsonTrue,JsonString "abc",JsonArray [JsonFalse]]
 jsonArray ::
   Parser (List JsonValue)
-jsonArray =
-  error "todo"
+jsonArray = betweenSepbyComma '[' ']' jsonValue
 
 -- | Parse a JSON object.
 --
@@ -224,8 +230,7 @@ jsonArray =
 -- Result >xyz< [("key1",JsonTrue),("key2",JsonFalse)]
 jsonObject ::
   Parser Assoc
-jsonObject =
-  error "todo"
+jsonObject = betweenSepbyComma '{' '}' (lift2 (,) jsonString ((tok . is) ':' >>> jsonValue))
 
 -- | Parse a JSON value.
 --
@@ -242,7 +247,13 @@ jsonObject =
 jsonValue ::
   Parser JsonValue
 jsonValue =
-   error "todo"
+  (jsonNull >>> valueParser JsonNull) |||
+  (jsonTrue >>> valueParser JsonTrue) |||
+  (jsonFalse >>> valueParser JsonFalse) |||
+  (JsonArray <$> jsonArray) |||
+  (JsonString <$> jsonString) |||
+  (JsonObject <$> jsonObject) |||
+  (JsonRational False) <$> jsonNumber
 
 -- | Read a file into a JSON value.
 --
